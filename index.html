@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>React sample</title>
+	<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+	<link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/0.99.0/css/materialize.min.css" rel="stylesheet">
+	<style>
+		body {
+			padding-bottom: 48px;
+		}
+		.scroll {
+			height:400px;
+			overflow-y:auto;
+		}
+		.block {
+			width: 100%;
+			min-height:800px;
+		}
+		.showCode {
+			position: fixed;
+			bottom: 0;
+			width: 100%;
+			box-sizing: border-box;
+			padding: 16px;
+			text-align: right;
+			border-top:2px solid #d88e77;
+			background: #fff;
+		}
+		.showCode button,
+		.showCode a {
+			display: inline-block;
+			margin-left: 12px;
+		}
+		.codeView .codeContents{
+			position: fixed;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			top: 0;
+			z-index: 1;
+		}
+		.codeView .codeContents:before {
+			content: '';
+			position: fixed;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			top: 0;
+			background: rgba(0,0,0,.4);
+		}
+		.codeViewInner {
+			position: fixed;
+			left: 40px;
+			right: 40px;
+			bottom: 40px;
+			top: 40px;
+			background: #fff;
+		}
+		.codeViewTextArea {
+			position: absolute;
+			left: 20px;
+			right: 20px;
+			bottom: 60px;
+			top: 20px;
+		}
+		.textarea {
+			position: absolute;
+			border: solid 1px #ccc;
+			background: #f5f2f0;
+			border-radius: 4px;
+			box-sizing: border-box;
+			padding: 20px;
+			width: 100%;
+			height: 100%;
+		}
+		.codeViewClose {
+			position: absolute;
+			bottom: 16px;
+			right: 16px;
+			border:none;
+			background: none;
+		}
+		.secondary-content {
+			padding-left: 8px;
+		}
+		.loadingContents {
+			position: fixed;
+			background: rgba(255,255,255,.8);
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			pointer-events: none;
+			z-index: 10;
+		}
+		.preloader-wrapper {
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			margin-top: -32px;
+			margin-left: -32px;
+		}
+		.sub {
+			display: inline-block;
+			color: #ddd;
+			font-size: 11px;
+		}
+
+	</style>
+</head>
+<body>
+	<!--描画するエリア-->
+	<div id="app"></div>
+	<!--Reactをcdnから読み込む-->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/react/15.3.1/react.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/react/15.3.1/react-dom.js"></script>
+	<!--babelをcdnから読み込む-->
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/6.10.3/babel.min.js"></script>
+	<script type="text/babel">
+
+		// 初期設定
+		const setting = {
+			module : [
+				{
+					label: 'Title',
+					field: [
+						{
+							label: 'text',
+							value: 'お中元特集',
+							max: 30,
+							valid: ['text','req'],
+						},
+						{
+							label: 'link',
+							value: '',
+							max: 1000,
+							valid: ['link'],
+						},
+					]
+				},
+				{
+					label: 'Image',
+					field: [
+						{
+							label: 'text',
+							value: 'お中元',
+							max: 30,
+							valid: ['text','req'],
+						},
+						{
+							label: 'path',
+							value: 'https://imgu-a.wowma.net/exu6/promotion/bulk/489/20170619113819_01_02.jpg',
+							max: 1000,
+							valid: ['img','req'],
+						},
+						{
+							label: 'link',
+							value: 'https://wowma.jp/event/ochugen/index.html',
+							max: 1000,
+							valid: ['link'],
+						},
+					]
+				},
+				{
+					label: 'Item',
+					field: [
+						{
+							label: 'lotnumber',
+							value: '215190235,262237260,153756581,127678612,234916279,234778929',
+							max: 100,
+							valid: ['text','req'],
+						},
+						{
+							label: 'col',
+							value: '6',
+							max: 10,
+							valid: ['req'],
+						}
+					]
+				}
+			]
+		};
+
+		class App extends React.Component {
+
+			constructor(props) {
+				super(props);
+				// settingはpropsで取得できる
+				if (props.strage) {
+					const state = JSON.parse( window.localStorage.getItem('htmlGenerator'));
+					state.loading = true;
+					state.preview = props.preview;
+					this.state = state;
+				} else {
+					this.state = {
+						// propsをstateへ保存
+						module: props.setting.module,
+						nav: 0,
+						code: false,
+						frame: false,
+						view:[],
+						edit: false,
+						error: false,
+						loading: true,
+						preview: props.preview,
+					};
+				}
+
+				this.code = null;
+				this.setStrage = this.props.setStrage;
+				this.dafalutData = this._copy(props.setting.module);
+				this._onNavClick = this._onNavClick.bind(this);
+				this._onCodeClick = this._onCodeClick.bind(this);
+				this._onFormClick = this._onFormClick.bind(this);
+				this._onControlClick = this._onControlClick.bind(this);
+				this._onFormCange = this._onFormCange.bind(this);
+				this._getState = this._getState.bind(this);
+			}
+			// コンポーネントが生成されたタイミングで実行
+			componentDidMount() {
+				// const url = 'http://localhost:8000/top.json';
+				const url = 'http://http-json-server.herokuapp.com/top.json';
+				try {
+					fetch(url, {
+						mode: 'cors'
+					}).then((response) => {
+						return response.json();
+					}).then((json) => {
+						if(json.text) {
+							if(this.refs.view.refs) {
+								this.code = this.refs.view.refs.code;
+							}
+							const iframe = this.refs.view.refs.frame.contentWindow.document;
+							// とりあえず仮。urlを絶対パスへ置換
+							iframe.documentElement.innerHTML = json.text.replace(/\=\"\//g,'="https://wowma.jp/');
+							iframe.body.className = 'uniAuTop js-sideNav-bgHide stHeaderBanner stHeaderServicebar js-sideNav-hide';
+							iframe.getElementById('contents').innerHTML = '';
+							iframe.querySelector('.js-drawr-left-panel').className += ' js-none';
+							// とりあえず仮。preview に読み込ませたいCSSを記述
+							const cssPath = ['http://cdnjs.cloudflare.com/ajax/libs/material-design-iconic-font/2.2.0/css/material-design-iconic-font.min.css'];
+							const styles = [];
+							cssPath.map((style,styleCount) => {
+								styles[styleCount] = iframe.createElement('link');
+								styles[styleCount].href = style;
+								styles[styleCount].rel = 'stylesheet';
+								iframe.head.appendChild(styles[styleCount]);
+							});
+							const styleText = iframe.createElement('style');
+							// ジェネレータ用のcss
+							const styleProp = document.createTextNode('body{overflow:auto!important;pointer-events:none;}.css-scrollWrapper{height:auto!important;}#contents>div{padding:12px 0px;}.viewActive{position:relative;}.viewActive:after{background:rgba(191, 54, 12,.4);position:absolute;left:-20px;top:-4px;right:-20px;bottom:-4px;content:"";}');
+							styleText.appendChild(styleProp);
+							iframe.head.appendChild(styleText);
+							this.frame = iframe.getElementById('contents');
+							this.setState({
+								loading: false
+							});
+						} else {
+							this.setState({
+								loading: false
+							});
+							console.log('サーバーエラー');
+						}
+					});
+				}
+				catch (e) {
+					this.setState({
+						loading: false
+					});
+					console.log('サーバーエラー');
+				}
+			}
+			// renderが呼ばれた後にiframeを更新
+			componentDidUpdate() {
+				this.frame.innerHTML = this.code.innerHTML
+			}
+
+			// 配列を値渡しするための関数
+			_copy (array) {
+				return JSON.parse(JSON.stringify(array));
+			}
+			// state.viewの値に現在入力されているmoduleデータを追加
+			_onFormClick (){
+				// valid
+				let valid = false;
+				this.state.module[this.state.nav]['field'].map((field,fieldCount) => {
+					// とりあえず必須項目だけのチェック
+					if(field.valid.indexOf('req') !== -1 && field.value === '') {
+						//本当はonchange時に実行が望ましい
+						valid = true;
+						this.setState({
+							error: fieldCount
+						});
+					}
+				});
+
+				// validetionが通った時の処理
+				if(valid === false) {
+					const view = this.state.view;
+					let insertView = {}
+					insertView['label'] = this.state.module[this.state.nav]['label'];
+					insertView['module'] = this.state.module[this.state.nav];
+					insertView['id'] = Number(this.state.nav);
+					this.state.module[this.state.nav]['field'].map((field,fieldCount) => {
+						insertView[field.label] = field.value;
+					})
+
+					// 商品だったらとりあえずAPIを叩く
+					if(insertView['label'] === 'Item') {
+						this.setState({
+							loading: true,
+						});
+						const url = 'http://http-json-server.herokuapp.com/index.json?item=' + this.state.module[this.state.nav]['field'][0]['value'];
+						try {
+							fetch(url, {
+								mode: 'cors'
+							}).then((response) => {
+								return response.json();
+							}).then((json) => {
+								if(json.text) {
+									insertView['item'] = JSON.parse(json.text);
+									if(this.state.edit !== false) {
+										view.splice(this.state.edit,1);
+										view.splice(this.state.edit, 0, insertView);
+									} else {
+										view.push(insertView);
+									}
+									this.setState({
+										module: this._copy(this.dafalutData),
+										view : view,
+										edit: false,
+										loading: false,
+										error: false
+									});
+									this.setStrage(this.state);
+								}
+							});
+						}
+						catch (e) {
+						}
+					} else {
+						// 商品以外
+						if(this.state.edit !== false) {
+							view.splice(this.state.edit,1);
+							view.splice(this.state.edit, 0, insertView);
+						} else {
+							view.push(insertView);
+						}
+						this.setState({
+							module: this._copy(this.dafalutData),
+							view : view,
+							edit: false,
+							error: false
+						});
+						this.setStrage(this.state);
+					}
+				}
+			}
+
+			_getState() {
+				return this.state;
+			}
+
+			// 編集と削除と並び替え
+			_onControlClick (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				const data =e.target.dataset;
+				const count = Number(data.count);
+				const view = this.state.view;
+				if(data.event === 'delete') {
+					view.splice(count,1);
+					this.setState({
+						view : view,
+						edit: false,
+						error: false
+					});
+				}
+				if(data.event === 'up' && count > 0) {
+					const viewList = this._copy(view[count]);
+					view.splice(count,1);
+					view.splice(count-1, 0, viewList);
+					this.setState({
+						view : view,
+						edit: false,
+						error: false
+					});
+				}
+				if(data.event === 'down' && count < view.length) {
+					const viewList = this._copy(view[count]);
+					view.splice(count,1);
+					view.splice(count+1, 0, viewList);
+					this.setState({
+						view : view,
+						edit: false,
+						error: false
+					});
+				}
+				if(data.event === 'edit') {
+					const module = this.state.module;
+					module[view[count]['id']] = this._copy(view[count]['module']);
+					this.setState({
+						view: view,
+						module: module,
+						edit: count,
+						nav: view[count]['id'],
+						error: false
+					});
+				}
+				this.setStrage(this.state);
+			}
+
+			// state.codeの値を更新
+			_onCodeClick (e){
+				if(e.target.dataset.close) {
+					if(window.confirm('データが消えてしまいます。本当にいいんですね？')){
+						this.setState({
+							module: this._copy(this.dafalutData),
+							view: [],
+							edit: false,
+							error: false
+						});
+					}
+				} else {
+					this.setState({ code : this.state.code === false ? this.code.innerHTML : false });
+				}
+			}
+
+			// state.navの値をnavをクリックされたdata属性に更新
+			_onNavClick (e){
+				e.preventDefault();
+				this.setState({
+					nav : Number(e.target.dataset.nav),
+					edit: false,
+					error: false
+				});
+			}
+
+			// state.moduleの値をテキストフィールドに変更値へ更新
+			_onFormCange (e) {
+				const module = this.state.module;
+				const data =e.target.dataset;
+				module[data.module]['field'][data.field]['value'] = e.target.value;
+				this.setState({
+					module : module,
+				});
+			}
+			//とにかく呼びまくってるのでshouldComponentUpdateで調整予定
+			render(){
+				let stateClass = this.state.code === false ? '' : 'codeView';
+				if(this.state.preview) {
+					return (
+						<div className="preview">
+							<div className="row">
+								<View ref="view" preview={this.state.preview} props={this.state.view} edit={this.state.edit} />
+							</div>
+							<Loading props={this.state.loading} />
+						</div>
+					);
+				} else {
+					return (
+						<div className={stateClass}>
+							<nav className="teal darken-2">
+								<a href="#" className="brand-logo center">HTML Generator</a>
+							</nav>
+							<div className="row">
+								<Form props={this.state.module} edit={this.state.edit} nav={this.state.nav} change={this._onFormCange} click={this._onFormClick} error={this.state.error} />
+								<Nav props={this.state.module} nav={this.state.nav} click={this._onNavClick} />
+							</div>
+							<div className="row">
+								<View ref="view" props={this.state.view} edit={this.state.edit} />
+								<Control props={this.state.view} edit={this.state.edit} click={this._onControlClick} />
+							</div>
+							<div className="row codeContents">
+								<Code props={this.state.code} click={this._onCodeClick} />
+							</div>
+							<Loading props={this.state.loading} />
+						</div>
+					);
+
+				}
+			}
+		}
+
+		/*
+		* Loading Component
+		*/
+		const Loading = ({props}) => {
+			if(props === true) {
+				return (
+					<div className="loadingContents">
+						<div className="preloader-wrapper active">
+							<div className="spinner-layer spinner-red-only">
+								<div className="circle-clipper left">
+									<div className="circle"></div>
+								</div><div className="gap-patch">
+									<div className="circle"></div>
+								</div><div className="circle-clipper right">
+									<div className="circle"></div>
+								</div>
+							</div>
+						</div>
+					</div>
+				);
+			} else {
+				return (
+					<div></div>
+				);
+			}
+		};
+
+		/*
+		* Code Component
+		*/
+		const Code = ({props, click}) => {
+			if(props === false) {
+				return (
+					<div className="showCode z-depth-4">
+						<button onClick={click} data-close='close' className="btn waves-effect waves-light btn-large grey lighten-1">
+							clear
+							<i className="material-icons right">close</i>
+						</button>
+						<a href="?preview=true" className="btn waves-effect waves-light btn-large blue darken-3">
+							Preview
+							<i className="material-icons right">visibility</i>
+						</a>
+						<button onClick={click} className="btn waves-effect waves-light btn-large deep-orange darken-4">
+							Show Code
+							<i className="material-icons right">code</i>
+						</button>
+					</div>
+				);
+			} else {
+				return (
+					<div className="codeViewInner z-depth-4">
+						<div className="codeViewTextArea">
+							<textarea  className="textarea" defaultValue={props} />
+						</div>
+						<button onClick={click} className="codeViewClose">
+							Close
+						</button>
+					</div>
+				);
+			}
+		};
+
+		/*
+		* Control Component
+		*/
+		const Control = ({props, edit, click}) => {
+			return (
+				<div className="col s3">
+					<ul className="collection block">
+						{/* loop modlue */}
+						{props.map((module,moduleCount) => {
+							const activeClass = moduleCount === edit ? ' active' : '';
+							let subText = '';
+							if(module.label === 'Title') {
+								subText = module.text;
+							} else {
+								subText = module.label;
+							}
+							return (
+								 <li key={`key_${moduleCount}`} className={`collection-item${activeClass}`}>
+								 	<div>
+									 {module.label}<br />
+									 	<span className="sub">{subText}</span>
+										<a href="#!"
+											className="secondary-content">
+											<i
+												className="material-icons grey-text lighten-3"
+												onClick={click}
+												data-event="delete"
+												data-count={moduleCount}>
+												delete
+											</i>
+										</a>
+										<a href="#!"
+											className="secondary-content">
+											<i
+												className="material-icons grey-text lighten-3"
+												onClick={click}
+												data-event="down"
+												data-count={moduleCount}>
+												keyboard_arrow_down
+											</i>
+										</a>
+										<a href="#!"
+											className="secondary-content">
+											<i
+												className="material-icons grey-text lighten-3"
+												onClick={click}
+												data-event="up"
+												data-count={moduleCount}>
+												keyboard_arrow_up
+											</i>
+										</a>
+										<a href="#!"
+											className="secondary-content">
+											<i
+												className="material-icons"
+												onClick={click}
+												data-event="edit"
+												data-count={moduleCount}>
+												mode_edit
+											</i>
+										</a>
+									</div>
+								</li>
+							);
+						})}
+						<li className={`collection-item`}></li>
+					</ul>
+				</div>
+			);
+		};
+
+		/*
+		* View Component
+		*/
+		class View extends React.Component {
+			constructor(props) {
+				super(props);
+			}
+			render () {
+				const toggleClass = this.props.preview ? '' : 'col s9';
+				return (
+					<div className={toggleClass}>
+						<iframe ref="frame" className="collection block s12"></iframe>
+						<div ref="code" className="hide">
+							{/* loop modlue */}
+							{this.props.props.map((module,moduleCount) => {
+								const edit = this.props.edit === moduleCount ? true : false;
+								if (module.label === 'Title') {
+									// TitleModuleコンポーネントを呼び出す
+									return (
+										<TitleModule key={moduleCount} edit={edit} data={module} />
+									);
+								} else if (module.label === 'Image') {
+									// ImageModuleコンポーネントを呼び出す
+									return (
+										<ImageModule key={moduleCount} edit={edit} data={module} />
+									);
+								} else if (module.label === 'Item') {
+									// ItemModuleコンポーネントを呼び出す
+									return (
+										<ItemModule key={moduleCount} edit={edit} data={module} />
+									);
+								}
+							})}
+						</div>
+					</div>
+				);
+			}
+		};
+
+		/*
+		* Nav Component
+		*/
+		const Nav = ({props, nav, click}) => (
+			<div className="col s3">
+				<div className="scroll">
+					<h3 className="header teal-text darken-2">Module</h3>
+					<div className="collection">
+						{/* loop modlue */}
+						{props.map((module,moduleCount) => {
+							const toggleClass = moduleCount !== nav ? '' : ' active';
+							return (
+								<a
+									href={`#${module.label}`}
+									key={`module_${moduleCount}`}
+									className={`collection-item${toggleClass}`}
+									data-nav={moduleCount}
+									onClick={click}>
+									{module.label}
+								</a>
+							);
+						})}
+					</div>
+				</div>
+			</div>
+		);
+
+		/*
+		* From Component
+		*/
+		const Form = ({props, edit, nav, change, click, error}) => {
+			const btnLabel = edit !== false ? 'Edit' : 'Add';
+			return (
+				<div className="col s9">
+					<div className="scroll">
+						{/* loop modlue */}
+						{props.map((module,moduleCount) => {
+							const toggleClass = moduleCount !== nav ? 'hide' : '';
+							return (
+								<div className={toggleClass} key={`module_${moduleCount}`}>
+									<h3 className="header teal-text darken-2">{btnLabel} {module.label}</h3>
+									{/* loop field */}
+									{module.field.map((field,fieldCount) => {
+										const errorClass = error === fieldCount ? 'invalid' : '' ;
+										return (
+											<div className="input-field" key={`field_${fieldCount}`}>
+												<label className="active" htmlFor={`f${moduleCount}${fieldCount}`}>{field.label}</label>
+												<input type="text"
+													id={`f${moduleCount}${fieldCount}`}
+													placeholder={field.label}
+													value={field.value}
+													data-module={moduleCount}
+													data-field={fieldCount}
+													className={errorClass}
+													onChange={change} />
+											</div>
+										);
+									})}
+								</div>
+							);
+						})}
+						<button onClick={click} className="btn waves-effect waves-light">
+							{btnLabel} Module
+							<i className="material-icons right">library_add</i>
+						</button>
+					</div>
+				</div>
+			);
+		}
+
+
+
+		/*
+		* TitleModule Component
+		*/
+		const TitleModule = ({data, edit}) => {
+			const activeClass = edit !== false ? 'viewActive' : '';
+			if(data.link !== '') {
+				return (
+					<div className={activeClass}>
+						<a href={data.link}>
+							<div className="conHeading01">
+								<div className="bd">
+									<h1>{data.text}</h1>
+								</div>
+							</div>
+						</a>
+					</div>
+				);
+			} else {
+				return (
+					<div className={activeClass}>
+						<div className="conHeading01">
+							<div className="bd">
+								<h1>{data.text}</h1>
+							</div>
+						</div>
+					</div>
+				);
+			}
+		};
+
+		/*
+		* ImageModule Component
+		*/
+		const ImageModule = ({data, edit}) => {
+			const activeClass = edit !== false ? 'viewActive' : '';
+			if(data.link !== '') {
+				return (
+					<div className={activeClass}>
+						<div className="modBannerBox01 stCol1">
+						<a href={data.link}>
+							<img src={data.path} alt={data.text} />
+						</a>
+					</div>
+					</div>
+				);
+			} else {
+				return (
+					<div className={activeClass}>
+						<img src={data.path} alt={data.text} />
+					</div>
+				);
+			}
+		};
+
+		/*
+		* ImageModule Component
+		*/
+		const ItemModule = ({data, edit}) => {
+			const activeClass = edit !== false ? 'viewActive' : '';
+			return (
+				<div className={activeClass}>
+				<div className="uniDynamicContent">
+					<div className="uniHScrolling stItemListLarge stItemListLargeShopName">
+						<div className="conItemList01 stHScrolling stHighList stCol6">
+							<ul className="uniItemList01">
+								{data.item.map((item,itemCount) => {
+									const saleClass = item.timesale_st === 'O' ? 'modSaleIcon01': '';
+									return (
+										<li key={itemCount} className={saleClass}>
+											<a href={`/item/${item.seq_exhibit_id}`} className="spImageColL">
+												<div className="image">
+													<p className="inner">
+														<img src={item.image_url_640} title={item.item_title} />
+													</p>
+												</div>
+												<div className="text">
+													<span className="name">{item.item_title}</span>
+													<s>{item.usual_price}円</s>
+													<div className="middle">
+														<span className="price">
+															{item.ktai_price}
+															<span className="tax">円(税込)</span>
+															<span className="postate">送料無料</span>
+														</span>
+													</div>
+													<div className="bottom">
+														<span className="shopName">{item.trademark}</span>
+													</div>
+												</div>
+											</a>
+										</li>
+									);
+								})}
+							</ul>
+						</div>
+					</div>
+				</div>
+				</div>
+			);
+		};
+		let preview = false;
+		if(location.search.match('preview')) {
+			preview = true;
+		}
+		let strage = false;
+		if(window.localStorage && localStorage.htmlGenerator !== 'undefined' && localStorage.htmlGenerator) {
+			strage = JSON.parse(localStorage.htmlGenerator);
+		}
+		const setStrage = (state) => {
+			localStorage.htmlGenerator = JSON.stringify(state);
+		}
+
+		const app = ReactDOM.render(
+			/*
+				* App component
+				* settingをコンポーネントへ渡す
+			*/
+			<App setting={setting} preview={preview} strage={strage} setStrage={setStrage} /> ,
+			document.getElementById('app')
+		);
+
+		if(window.localStorage) {
+			window.addEventListener('beforeunload', () => {
+				setStrage(app._getState());
+			});
+		}
+	</script>
+</body>
+
+</html>
